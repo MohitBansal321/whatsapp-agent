@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: leads
+    // Fields:
+    //   - name: string (required)
+    //   - phone: string (required)
+    //   - loanType: string (required)
+    //   - status: string (required, enum: ['new', 'contacted', 'converted', 'lost'])
+    //   - lastMessage: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Subcollection: leads/{leadId}/messages
+    // Fields:
+    //   - text: string (required)
+    //   - sender: string (required, enum: ['agent', 'user'])
+    //   - timestamp: timestamp (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             (request.auth.token.email == "bmohit162001@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidLead(data) {
+      return data.keys().hasAll(['name', 'phone', 'loanType', 'status', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.phone is string && data.phone.size() > 0 && data.phone.size() < 20 &&
+             data.loanType is string &&
+             data.status in ['new', 'contacted', 'converted', 'lost'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['text', 'sender', 'timestamp']) &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 5000 &&
+             data.sender in ['agent', 'user'] &&
+             data.timestamp is timestamp;
+    }
+
+    // Leads collection
+    match /leads/{leadId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidLead(request.resource.data);
+      allow update: if isAdmin() && isValidLead(request.resource.data);
+      allow delete: if isAdmin();
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin() && isValidMessage(request.resource.data);
+        allow update: if false; // Messages are immutable
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}
