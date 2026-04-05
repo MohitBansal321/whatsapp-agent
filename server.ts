@@ -83,10 +83,30 @@ app.post("/api/chat", async (req, res) => {
     console.log(`>>> Using Key from ${keySource}: ${maskedKey} (Total Length: ${apiKey.length})`);
     const ai = new GoogleGenAI({ apiKey });
     
+    // Construct a dynamic system instruction based on organization config
+    const dynamicSystemInstruction = `
+${config?.systemPrompt || SYSTEM_PROMPT}
+
+ORGANIZATION CONTEXT:
+- Company Name: ${config?.companyName || "Bharat Loans"}
+- Tone of Voice: ${config?.tone || "friendly"}
+- Primary Language: ${config?.primaryLanguage || "English"}
+
+PRODUCT KNOWLEDGE BASE:
+${config?.knowledgeBase || "Standard loan products and interest rates apply."}
+
+IMPORTANT GUIDELINES:
+1. Always identify yourself as an assistant from ${config?.companyName || "Bharat Loans"}.
+2. Maintain a ${config?.tone || "friendly"} tone throughout the conversation.
+3. Use the KNOWLEDGE BASE above to answer specific questions about interest rates, fees, and eligibility.
+4. If a user asks something not in the knowledge base, politely inform them that a human representative will get back to them with exact details.
+5. Support multi-lingual conversations. If the user speaks in Hindi, Marathi, or any other language, respond in that same language fluently.
+`;
+
     const chat = ai.chats.create({
       model: "gemini-3-flash-preview",
       config: {
-        systemInstruction: config?.systemPrompt || SYSTEM_PROMPT,
+        systemInstruction: dynamicSystemInstruction,
         temperature: 0.7,
       },
       history: history || []

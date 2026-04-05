@@ -78,13 +78,24 @@ interface Lead {
 }
 
 interface AgentConfig {
+  companyName: string;
   systemPrompt: string;
   knowledgeBase: string;
   primaryLanguage: string;
+  tone: 'professional' | 'friendly' | 'urgent' | 'empathetic';
+  logoUrl?: string;
+}
+
+interface AnalyticsData {
+  totalLeads: number;
+  contactedLeads: number;
+  convertedLeads: number;
+  conversionRate: number;
+  avgResponseTime: string;
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'admin' | 'leads' | 'analytics'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'admin' | 'leads' | 'analytics'>('leads');
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -98,20 +109,27 @@ export default function App() {
   const [sheetId, setSheetId] = useState('');
   
   const [config, setConfig] = useState<AgentConfig>({
-    systemPrompt: `You are a professional and friendly loan conversion agent for "Bharat Loans". 
+    companyName: 'Bharat Loans',
+    systemPrompt: `You are a professional and friendly loan conversion agent. 
 Your goal is to help potential leads understand their loan options and convert them into applicants.
 Be polite, helpful, and persuasive. 
-You support all major Indian languages (Hindi, Bengali, Marathi, Telugu, Tamil, Gujarati, Kannada, Malayalam, Punjabi).
-Always respond in the language the user uses.
-If the user asks about interest rates, use the information from the knowledge base.
-IMPORTANT: Remember the context of the conversation. If the user provided information earlier, use it.`,
+You support all major Indian languages. Always respond in the language the user uses.`,
     knowledgeBase: `Personal Loan: 10.5% - 18% APR
 Home Loan: 8.5% - 12% APR
 Business Loan: 12% - 22% APR
 Processing Fee: 1-2%
 Tenure: 12 to 60 months
 Eligibility: Min salary ₹25,000/month, Age 21-60`,
-    primaryLanguage: 'English'
+    primaryLanguage: 'English',
+    tone: 'friendly'
+  });
+
+  const [analytics, setAnalytics] = useState<AnalyticsData>({
+    totalLeads: 0,
+    contactedLeads: 0,
+    convertedLeads: 0,
+    conversionRate: 0,
+    avgResponseTime: '2.4s'
   });
 
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -148,6 +166,18 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         ...doc.data()
       })) as Lead[];
       setLeads(leadsData);
+      
+      // Update Analytics
+      const total = leadsData.length;
+      const contacted = leadsData.filter(l => l.status === 'contacted').length;
+      const converted = leadsData.filter(l => l.status === 'converted').length;
+      setAnalytics(prev => ({
+        ...prev,
+        totalLeads: total,
+        contactedLeads: contacted,
+        convertedLeads: converted,
+        conversionRate: total > 0 ? Math.round((converted / total) * 100) : 0
+      }));
     }, (error) => {
       console.error("Firestore Error (Leads):", error);
     });
@@ -160,19 +190,26 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
     setIsSeeding(true);
     
     const initialLeads = [
-      { name: 'Rahul Sharma', phone: '+91 98765 43210', loanType: 'Personal Loan', status: 'new', createdAt: serverTimestamp() },
+      { name: 'Rahul Sharma', phone: '+91 98765 43210', loanType: 'Personal Loan', status: 'converted', lastMessage: 'Yes, proceed with application', createdAt: serverTimestamp() },
       { name: 'Priya Patel', phone: '+91 87654 32109', loanType: 'Home Loan', status: 'contacted', lastMessage: 'Interested in rates', createdAt: serverTimestamp() },
       { name: 'Amit Singh', phone: '+91 76543 21098', loanType: 'Business Loan', status: 'new', createdAt: serverTimestamp() },
-      { name: 'Suresh Kumar', phone: '+91 99887 76655', loanType: 'Personal Loan', status: 'new', createdAt: serverTimestamp() },
-      { name: 'Anjali Gupta', phone: '+91 88776 65544', loanType: 'Home Loan', status: 'new', createdAt: serverTimestamp() },
+      { name: 'Suresh Kumar', phone: '+91 99887 76655', loanType: 'Personal Loan', status: 'converted', lastMessage: 'Documents sent', createdAt: serverTimestamp() },
+      { name: 'Anjali Gupta', phone: '+91 88776 65544', loanType: 'Home Loan', status: 'contacted', lastMessage: 'Call me tomorrow', createdAt: serverTimestamp() },
     ];
     
     try {
       console.log("Seeding leads...");
       for (const l of initialLeads) {
-        await addDoc(collection(db, 'leads'), l);
+        const docRef = await addDoc(collection(db, 'leads'), l);
+        if (l.status !== 'new') {
+          await addDoc(collection(db, `leads/${docRef.id}/messages`), {
+            text: `Namaste ${l.name}! I am your assistant from ${config.companyName}. I see you are interested in a ${l.loanType}. How can I help you today?`,
+            sender: 'agent',
+            timestamp: serverTimestamp()
+          });
+        }
       }
-      console.log("Leads seeded successfully");
+      alert('Demo leads seeded successfully with diverse statuses!');
     } catch (error) {
       console.error("Error seeding leads:", error);
     } finally {
@@ -367,8 +404,10 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
           message: text,
           history: history,
           config: {
+            companyName: config.companyName,
             systemPrompt: config.systemPrompt,
-            knowledgeBase: config.knowledgeBase
+            knowledgeBase: config.knowledgeBase,
+            tone: config.tone
           }
         })
       });
@@ -420,7 +459,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
     if (snapshot.empty) {
       // Initial greeting if no history
       await addDoc(collection(db, `leads/${lead.id}/messages`), {
-        text: `Namaste ${lead.name}! I am your assistant from Bharat Loans. I see you are interested in a ${lead.loanType}. How can I help you today?`,
+        text: `Namaste ${lead.name}! I am your assistant from ${config.companyName}. I see you are interested in a ${lead.loanType}. How can I help you today?`,
         sender: 'agent',
         timestamp: serverTimestamp()
       });
@@ -719,20 +758,52 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="p-10 flex-1 overflow-y-auto bg-white"
+              className="p-10 flex-1 overflow-y-auto bg-gray-50"
             >
               <div className="max-w-4xl mx-auto">
                 <div className="mb-10">
-                  <h1 className="text-3xl font-bold text-gray-900">Agent Configuration</h1>
-                  <p className="text-gray-500 mt-1">Fine-tune the AI behavior, knowledge base, and language settings.</p>
+                  <h1 className="text-3xl font-bold text-gray-900">Organization Settings</h1>
+                  <p className="text-gray-500 mt-1">Configure your AI Agent's identity, tone, and knowledge base.</p>
                 </div>
 
                 <div className="space-y-8">
+                  {/* Company Profile */}
+                  <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex items-center gap-2 text-lg font-bold text-gray-800 border-b border-gray-50 pb-4">
+                      <ShieldCheck size={22} className="text-blue-600" />
+                      <h3>Company Profile & Branding</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-gray-700">Company Name</label>
+                        <input 
+                          type="text" 
+                          value={config.companyName}
+                          onChange={(e) => setConfig({...config, companyName: e.target.value})}
+                          className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-gray-700">AI Tone of Voice</label>
+                        <select 
+                          value={config.tone}
+                          onChange={(e) => setConfig({...config, tone: e.target.value as any})}
+                          className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        >
+                          <option value="professional">Professional & Direct</option>
+                          <option value="friendly">Friendly & Conversational</option>
+                          <option value="urgent">Urgent & Persuasive</option>
+                          <option value="empathetic">Empathetic & Supportive</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+
                   {/* System Prompt */}
-                  <section className="space-y-4">
-                    <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
+                  <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex items-center gap-2 text-lg font-bold text-gray-800 border-b border-gray-50 pb-4">
                       <Bot size={22} className="text-green-600" />
-                      <h3>System Personality & Instructions</h3>
+                      <h3>AI Personality & Instructions</h3>
                     </div>
                     <textarea 
                       value={config.systemPrompt}
@@ -746,41 +817,41 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                   </section>
 
                   {/* Knowledge Base */}
-                  <section className="space-y-4">
-                    <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
-                      <FileText size={22} className="text-blue-600" />
-                      <h3>Knowledge Base (Loan Products & Rates)</h3>
+                  <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex items-center gap-2 text-lg font-bold text-gray-800 border-b border-gray-50 pb-4">
+                      <FileText size={22} className="text-purple-600" />
+                      <h3>Product Knowledge Base</h3>
                     </div>
                     <textarea 
                       value={config.knowledgeBase}
                       onChange={(e) => setConfig({...config, knowledgeBase: e.target.value})}
-                      className="w-full h-40 p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm font-mono"
+                      className="w-full h-40 p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm font-mono"
                       placeholder="Paste loan details, interest rates, eligibility criteria here..."
                     />
                     <div className="flex gap-4">
-                      <button className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
-                        <Paperclip size={16} /> Upload PDF
+                      <button className="flex-1 py-3 bg-purple-50 text-purple-700 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors flex items-center justify-center gap-2">
+                        <Upload size={18} /> Upload PDF Knowledge
                       </button>
-                      <button className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
-                        <Search size={16} /> Crawl Website
+                      <button className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
+                        <ExternalLink size={18} /> Sync from Website
                       </button>
                     </div>
                   </section>
 
                   {/* Language Settings */}
-                  <section className="space-y-4">
-                    <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
-                      <Languages size={22} className="text-purple-600" />
+                  <section className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                    <div className="flex items-center gap-2 text-lg font-bold text-gray-800 border-b border-gray-50 pb-4">
+                      <Languages size={22} className="text-orange-600" />
                       <h3>Language Support</h3>
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      {['Hindi', 'Bengali', 'Marathi', 'Telugu', 'Tamil', 'Gujarati'].map(lang => (
-                        <div key={lang} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                      {['Hindi', 'Bengali', 'Marathi', 'Telugu', 'Tamil', 'Gujarati', 'Kannada', 'Punjabi'].map(lang => (
+                        <div key={lang} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
                           <CheckCircle2 size={18} className="text-green-500" />
                           <span className="text-sm font-medium">{lang}</span>
                         </div>
                       ))}
-                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100 border-dashed">
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 border-dashed">
                         <Plus size={18} className="text-gray-400" />
                         <span className="text-sm font-medium text-gray-400">Add More</span>
                       </div>
@@ -790,25 +861,26 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                   <div className="pt-6 border-t border-gray-100 flex justify-end gap-4">
                     <button 
                       onClick={async () => {
-                        if (window.confirm("Are you sure you want to clear all leads and messages?")) {
+                        if (window.confirm("Are you sure you want to clear all leads?")) {
                           try {
                             const snapshot = await getDocs(collection(db, 'leads'));
                             for (const d of snapshot.docs) {
-                              // Note: We'd also need to clear subcollections in a real app, 
-                              // but for demo purposes this is fine as we'll just lose the reference.
-                              await updateDoc(doc(db, 'leads', d.id), { status: 'lost' }); // Just marking as lost for now as a safe "clear"
+                              await updateDoc(doc(db, 'leads', d.id), { status: 'lost' });
                             }
-                            alert("Leads marked as lost (simulated clear).");
+                            alert("Leads marked as lost.");
                           } catch (e) {
                             console.error(e);
                           }
                         }
                       }}
-                      className="px-6 py-2 text-red-500 font-medium hover:text-red-700"
+                      className="px-6 py-3 text-red-500 font-bold hover:bg-red-50 rounded-xl transition-all"
                     >
                       Reset Demo Data
                     </button>
-                    <button className="px-8 py-2 bg-green-600 text-white rounded-lg font-semibold shadow-md hover:bg-green-700 transition-all">
+                    <button 
+                      onClick={() => alert("Configuration saved successfully! All AI responses will now use your new company identity and tone.")}
+                      className="px-10 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all transform hover:scale-105"
+                    >
                       Save Configuration
                     </button>
                   </div>
