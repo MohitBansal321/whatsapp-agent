@@ -79,8 +79,13 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // Log key details safely for debugging
-    const maskedKey = `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`;
-    console.log(`>>> Using Key from ${keySource}: ${maskedKey} (Total Length: ${apiKey.length})`);
+    const maskedKey = apiKey ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}` : "None";
+    console.log(`>>> Using Key from ${keySource}: ${maskedKey} (Total Length: ${apiKey?.length || 0})`);
+    
+    if (!apiKey) {
+      throw new Error("Gemini API key is not configured.");
+    }
+
     const ai = new GoogleGenAI({ apiKey });
     
     // Construct a dynamic system instruction based on organization config
@@ -90,17 +95,16 @@ ${config?.systemPrompt || SYSTEM_PROMPT}
 ORGANIZATION CONTEXT:
 - Company Name: ${config?.companyName || "Bharat Loans"}
 - Tone of Voice: ${config?.tone || "friendly"}
-- Primary Language: ${config?.primaryLanguage || "English"}
 
-PRODUCT KNOWLEDGE BASE:
+PRODUCT KNOWLEDGE BASE (RAG CONTEXT):
 ${config?.knowledgeBase || "Standard loan products and interest rates apply."}
 
-IMPORTANT GUIDELINES:
-1. Always identify yourself as an assistant from ${config?.companyName || "Bharat Loans"}.
-2. Maintain a ${config?.tone || "friendly"} tone throughout the conversation.
-3. Use the KNOWLEDGE BASE above to answer specific questions about interest rates, fees, and eligibility.
-4. If a user asks something not in the knowledge base, politely inform them that a human representative will get back to them with exact details.
-5. Support multi-lingual conversations. If the user speaks in Hindi, Marathi, or any other language, respond in that same language fluently.
+CRITICAL GUARDRAILS & BRAND SAFETY:
+1. STRICT RAG ENFORCEMENT: You MUST ONLY answer questions based on the PRODUCT KNOWLEDGE BASE above. 
+2. HALLUCINATION CONTROL: Do NOT invent, hallucinate, or assume interest rates, discounts, policies, or eligibility criteria.
+3. HUMAN ESCALATION: If the user asks about competitors, non-business topics, or anything NOT explicitly covered in the knowledge base, you MUST reply EXACTLY with: "I don't have that information. Let me connect you to a human representative."
+4. MULTI-LINGUAL AUTO-DETECTION: Automatically detect the user's language (including Hinglish, Hindi, Marathi, etc.) and reply in the EXACT SAME language and script.
+5. Always identify yourself as an assistant from ${config?.companyName || "Bharat Loans"} and maintain a ${config?.tone || "friendly"} tone.
 `;
 
     const chat = ai.chats.create({
@@ -145,7 +149,85 @@ IMPORTANT GUIDELINES:
   }
 });
 
-// PDF Parsing Endpoint
+// Audio Chat Endpoint
+app.post("/api/chat-audio", upload.single("audio"), async (req, res) => {
+  try {
+    const { history, config: configStr } = req.body;
+    const config = configStr ? JSON.parse(configStr) : null;
+    const parsedHistory = history ? JSON.parse(history) : [];
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No audio file uploaded" });
+    }
+
+    // Get API Key
+    const apiKey = process.env.API_KEY_G || process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("Gemini API key is not configured.");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    const dynamicSystemInstruction = `
+${config?.systemPrompt || SYSTEM_PROMPT}
+
+ORGANIZATION CONTEXT:
+- Company Name: ${config?.companyName || "Bharat Loans"}
+- Tone of Voice: ${config?.tone || "friendly"}
+
+PRODUCT KNOWLEDGE BASE (RAG CONTEXT):
+${config?.knowledgeBase || "Standard loan products and interest rates apply."}
+
+CRITICAL GUARDRAILS & BRAND SAFETY:
+1. STRICT RAG ENFORCEMENT: You MUST ONLY answer questions based on the PRODUCT KNOWLEDGE BASE above. 
+2. HALLUCINATION CONTROL: Do NOT invent, hallucinate, or assume interest rates, discounts, policies, or eligibility criteria.
+3. HUMAN ESCALATION: If the user asks about competitors, non-business topics, or anything NOT explicitly covered in the knowledge base, you MUST reply EXACTLY with: "I don't have that information. Let me connect you to a human representative."
+4. GREETINGS & SMALL TALK: If the user is just greeting you (e.g., "Hello", "Hi", "Namaste"), respond politely and ask how you can help them with their loan needs. Do NOT escalate greetings to a human.
+5. MULTI-LINGUAL AUTO-DETECTION: Automatically detect the user's language (including Hinglish, Hindi, Marathi, etc.) and reply in the EXACT SAME language and script.
+6. Always identify yourself as an assistant from ${config?.companyName || "Bharat Loans"} and maintain a ${config?.tone || "friendly"} tone.
+`;
+
+    // Convert audio buffer to base64
+    const base64Audio = req.file.buffer.toString('base64');
+    
+    // Ensure mimetype is clean (sometimes it includes codecs which can confuse the API)
+    let mimeType = req.file.mimetype || 'audio/webm';
+    if (mimeType.includes(';')) {
+      mimeType = mimeType.split(';')[0];
+    }
+
+    const chat = ai.chats.create({
+      model: "gemini-3-flash-preview",
+      config: {
+        systemInstruction: dynamicSystemInstruction,
+        temperature: 0.7,
+      },
+      history: parsedHistory
+    });
+
+    console.log(">>> Sending audio message to Gemini...");
+    const result = await chat.sendMessage({
+      message: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Audio
+          }
+        },
+        { text: "Please listen to this audio message and respond accordingly." }
+      ]
+    });
+    
+    console.log(">>> Gemini audio response received successfully");
+    res.json({ text: result.text });
+
+  } catch (error: any) {
+    console.error("!!! AI Audio Error:", error);
+    res.status(500).json({ error: error.message || "Failed to process audio request" });
+  }
+});
+
+// PDF Parsing Endpoint for Leads
 app.post("/api/parse-pdf", upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
@@ -186,6 +268,25 @@ app.post("/api/parse-pdf", upload.single("file"), async (req, res) => {
   } catch (error: any) {
     console.error("!!! PDF Error:", error);
     res.status(500).json({ error: "Failed to parse PDF" });
+  }
+});
+
+// Knowledge Base PDF Upload Endpoint
+app.post("/api/upload-kb", upload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
+  }
+
+  try {
+    const data = await pdf(req.file.buffer);
+    const text = data.text;
+    
+    // In a real app, you would chunk this text and store it in a vector database for RAG.
+    // For this demo, we'll just return the extracted text to be used in the system prompt.
+    res.json({ text });
+  } catch (error: any) {
+    console.error("!!! KB PDF Error:", error);
+    res.status(500).json({ error: "Failed to parse Knowledge Base PDF" });
   }
 });
 

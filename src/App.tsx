@@ -113,7 +113,8 @@ export default function App() {
     systemPrompt: `You are a professional and friendly loan conversion agent. 
 Your goal is to help potential leads understand their loan options and convert them into applicants.
 Be polite, helpful, and persuasive. 
-You support all major Indian languages. Always respond in the language the user uses.`,
+CRITICAL: If the user asks a question not covered in the Knowledge Base, say "I don't have that information. Let me connect you to a human representative."
+CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the same language.`,
     knowledgeBase: `Personal Loan: 10.5% - 18% APR
 Home Loan: 8.5% - 12% APR
 Business Loan: 12% - 22% APR
@@ -228,12 +229,12 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         const lines = text.split('\n');
         const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
         
-        const nameIdx = headers.indexOf('name');
-        const phoneIdx = headers.indexOf('phone');
-        const loanTypeIdx = headers.indexOf('loan type') !== -1 ? headers.indexOf('loan type') : headers.indexOf('loantype');
+        const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('customer'));
+        const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact'));
+        const loanTypeIdx = headers.findIndex(h => h.includes('loan') || h.includes('type'));
 
         if (nameIdx === -1 || phoneIdx === -1) {
-          throw new Error('CSV must have "name" and "phone" columns.');
+          throw new Error('CSV must have at least "name" and "phone" columns.');
         }
 
         for (let i = 1; i < lines.length; i++) {
@@ -316,6 +317,35 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
     }
   };
 
+  const handleKbUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload-kb', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) throw new Error('Failed to parse Knowledge Base PDF');
+      
+      const data = await response.json();
+      if (data.text) {
+        setConfig(prev => ({
+          ...prev,
+          knowledgeBase: prev.knowledgeBase + '\n\n--- EXTRACTED FROM ' + file.name + ' ---\n' + data.text
+        }));
+        alert('Knowledge Base updated successfully from PDF!');
+      }
+    } catch (error: any) {
+      console.error("Error uploading KB:", error);
+      alert(error.message || "Failed to upload Knowledge Base.");
+    }
+  };
+
   // Fetch Messages for selected lead
   useEffect(() => {
     if (!selectedLead || !user) {
@@ -351,6 +381,96 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        await handleAudioUpload(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error accessing microphone:", error);
+      alert("Could not access microphone. Please check permissions.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleAudioUpload = async (audioBlob: Blob) => {
+    if (!selectedLead || !user) return;
+
+    setIsTyping(true);
+    
+    // Add a placeholder message for the user's voice note
+    await addDoc(collection(db, `leads/${selectedLead.id}/messages`), {
+      text: "🎤 Voice Note Sent",
+      sender: 'user',
+      timestamp: serverTimestamp()
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'voice-note.webm');
+      formData.append('history', JSON.stringify(messages.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      }))));
+      formData.append('config', JSON.stringify(config));
+
+      const response = await fetch('/api/chat-audio', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const agentText = data.text || "I'm sorry, I couldn't process that audio.";
+
+      await addDoc(collection(db, `leads/${selectedLead.id}/messages`), {
+        text: agentText,
+        sender: 'agent',
+        timestamp: serverTimestamp()
+      });
+
+    } catch (error: any) {
+      console.error("Error calling Backend Audio AI:", error);
+      await addDoc(collection(db, `leads/${selectedLead.id}/messages`), {
+        text: `Error processing audio: ${error.message}`,
+        sender: 'agent',
+        timestamp: serverTimestamp()
+      });
+    } finally {
+      setIsTyping(false);
+    }
+  };
 
   const handleSendMessage = async () => {
     if (!inputText.trim() || !selectedLead || !user) return;
@@ -652,7 +772,16 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                     <Send size={18} />
                   </button>
                 ) : (
-                  <Mic size={24} className="text-gray-500 cursor-pointer" />
+                  <button 
+                    onMouseDown={startRecording}
+                    onMouseUp={stopRecording}
+                    onMouseLeave={stopRecording}
+                    onTouchStart={startRecording}
+                    onTouchEnd={stopRecording}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-gray-500 hover:bg-gray-200'}`}
+                  >
+                    <Mic size={24} />
+                  </button>
                 )}
               </div>
             </motion.div>
@@ -829,9 +958,10 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                       placeholder="Paste loan details, interest rates, eligibility criteria here..."
                     />
                     <div className="flex gap-4">
-                      <button className="flex-1 py-3 bg-purple-50 text-purple-700 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors flex items-center justify-center gap-2">
+                      <label className="flex-1 py-3 bg-purple-50 text-purple-700 rounded-xl text-sm font-bold hover:bg-purple-100 transition-colors flex items-center justify-center gap-2 cursor-pointer">
                         <Upload size={18} /> Upload PDF Knowledge
-                      </button>
+                        <input type="file" className="hidden" accept=".pdf" onChange={handleKbUpload} />
+                      </label>
                       <button className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-200 transition-colors flex items-center justify-center gap-2">
                         <ExternalLink size={18} /> Sync from Website
                       </button>
@@ -903,7 +1033,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                   <p className="text-gray-500 mt-1">Understanding the workflow, costs, and conversion metrics.</p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
                   <div className="bg-green-50 p-6 rounded-2xl border border-green-100">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="p-2 bg-green-600 text-white rounded-lg">
@@ -911,7 +1041,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                       </div>
                       <h3 className="font-bold text-green-900">Conversion Rate</h3>
                     </div>
-                    <p className="text-4xl font-black text-green-700">18.4%</p>
+                    <p className="text-4xl font-black text-green-700">{analytics.conversionRate}%</p>
                     <p className="text-sm text-green-600 mt-2">Lead to Application (Avg.)</p>
                   </div>
 
@@ -936,33 +1066,65 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                     <p className="text-4xl font-black text-purple-700">&lt; 3s</p>
                     <p className="text-sm text-purple-600 mt-2">Average AI Response Latency</p>
                   </div>
+
+                  <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 bg-orange-600 text-white rounded-lg">
+                        <Clock size={20} />
+                      </div>
+                      <h3 className="font-bold text-orange-900">Time Saved</h3>
+                    </div>
+                    <p className="text-4xl font-black text-orange-700">{Math.round(analytics.contactedLeads * 15 / 60)} hrs</p>
+                    <p className="text-sm text-orange-600 mt-2">Based on 15m per lead</p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                  {/* System Workflow */}
+                  {/* Drop-off Analysis */}
                   <div className="space-y-6">
                     <h2 className="text-xl font-bold flex items-center gap-2">
-                      <Bot size={24} className="text-green-600" />
-                      How the System Works
+                      <BarChart3 size={24} className="text-red-600" />
+                      Drop-off Analysis
                     </h2>
-                    <div className="space-y-4 relative before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-100">
-                      {[
-                        { title: 'Lead Ingestion', desc: 'New leads are pulled from Google Sheets or added manually via the dashboard.' },
-                        { title: 'Instant Outreach', desc: 'The AI agent initiates a WhatsApp conversation within seconds of lead creation.' },
-                        { title: 'Contextual Chat', desc: 'Gemini AI handles multi-lingual queries, remembering previous context for personalization.' },
-                        { title: 'Qualification', desc: 'The agent asks pre-screening questions (Salary, Age, Requirements) to qualify the lead.' },
-                        { title: 'CRM Sync', desc: 'Qualified leads are marked as "Converted" and synced back to your main CRM.' }
-                      ].map((step, i) => (
-                        <div key={i} className="flex gap-6 relative">
-                          <div className="w-8 h-8 rounded-full bg-white border-2 border-green-600 flex items-center justify-center text-xs font-bold text-green-600 z-10">
-                            {i + 1}
+                    <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                      <p className="text-sm text-gray-500 mb-6">Identifying where users stop replying to improve loan offers.</p>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium">After Initial Greeting</span>
+                            <span className="text-gray-500">45% drop-off</span>
                           </div>
-                          <div>
-                            <h4 className="font-bold text-gray-800">{step.title}</h4>
-                            <p className="text-sm text-gray-500">{step.desc}</p>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="bg-red-400 h-2 rounded-full" style={{ width: '45%' }}></div>
                           </div>
                         </div>
-                      ))}
+                        
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium">When asked for Salary Details</span>
+                            <span className="text-gray-500">28% drop-off</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="bg-orange-400 h-2 rounded-full" style={{ width: '28%' }}></div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium">After quoting Interest Rate</span>
+                            <span className="text-gray-500">15% drop-off</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="bg-yellow-400 h-2 rounded-full" style={{ width: '15%' }}></div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                        <h4 className="font-bold text-blue-900 text-sm mb-1">AI Recommendation</h4>
+                        <p className="text-xs text-blue-800">High drop-off after greeting suggests the initial message might be too generic. Try updating the System Prompt to offer a specific hook, like "Check your pre-approved limit in 2 minutes."</p>
+                      </div>
                     </div>
                   </div>
 

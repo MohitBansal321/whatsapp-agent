@@ -25,6 +25,19 @@
         "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent." }
       },
       "required": ["leadId", "text", "sender", "timestamp"]
+    },
+    "organization": {
+      "title": "Organization",
+      "description": "Settings for a specific company using the platform.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the company." },
+        "tone": { "type": "string", "description": "The AI's tone of voice." },
+        "knowledgeBase": { "type": "string", "description": "The product knowledge base text." },
+        "logoUrl": { "type": "string", "description": "The URL of the company logo." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the settings were last updated." }
+      },
+      "required": ["name", "tone"]
     }
   },
   "firestore": {
@@ -35,6 +48,10 @@
     "/leads/{leadId}/messages": {
       "schema": { "$ref": "message" },
       "description": "Subcollection of messages for a specific lead."
+    },
+    "/settings": {
+      "schema": { "$ref": "organization" },
+      "description": "Global settings for the platform (multi-tenant ready)."
     }
   }
 }

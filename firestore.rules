@@ -1,6 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     // ===============================================================
     // Assumed Data Model
     // ===============================================================
@@ -10,58 +11,119 @@ service cloud.firestore {
     //   - name: string (required)
     //   - phone: string (required)
     //   - loanType: string (required)
-    //   - status: string (required, enum: ['new', 'contacted', 'converted', 'lost'])
+    //   - status: string (required, enum: ["new", "contacted", "converted", "lost"])
     //   - lastMessage: string (optional)
-    //   - createdAt: timestamp (required)
+    //   - createdAt: string (optional, ISO 8601)
     //
-    // Subcollection: leads/{leadId}/messages
+    // Collection: leads/{leadId}/messages
     // Fields:
+    //   - leadId: string (required)
     //   - text: string (required)
-    //   - sender: string (required, enum: ['agent', 'user'])
-    //   - timestamp: timestamp (required)
+    //   - sender: string (required, enum: ["agent", "user"])
+    //   - timestamp: string (required, ISO 8601)
+    //
+    // Collection: settings
+    // Fields:
+    //   - name: string (required)
+    //   - tone: string (required)
+    //   - knowledgeBase: string (optional)
+    //   - logoUrl: string (optional)
+    //   - updatedAt: string (optional, ISO 8601)
     //
     // ===============================================================
 
+    // ===============================================================
     // Helper Functions
+    // ===============================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-             (request.auth.token.email == "bmohit162001@gmail.com" && request.auth.token.email_verified == true);
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "bmohit162001@gmail.com" && request.auth.token.email_verified == true));
     }
 
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
     function isValidLead(data) {
-      return data.keys().hasAll(['name', 'phone', 'loanType', 'status', 'createdAt']) &&
+      return hasRequiredFields(['name', 'phone', 'loanType', 'status']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.phone is string && data.phone.size() > 0 && data.phone.size() < 20 &&
              data.loanType is string &&
-             data.status in ['new', 'contacted', 'converted', 'lost'] &&
-             data.createdAt is timestamp;
+             data.status in ["new", "contacted", "converted", "lost"];
     }
 
     function isValidMessage(data) {
-      return data.keys().hasAll(['text', 'sender', 'timestamp']) &&
+      return hasRequiredFields(['text', 'sender', 'timestamp']) &&
              data.text is string && data.text.size() > 0 && data.text.size() < 5000 &&
-             data.sender in ['agent', 'user'] &&
+             data.sender in ["agent", "user"] &&
              data.timestamp is timestamp;
+    }
+
+    function isValidSettings(data) {
+      return hasRequiredFields(['name', 'tone']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.tone is string && data.tone.size() > 0 && data.tone.size() < 100;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
     }
 
     // Leads collection
     match /leads/{leadId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && isValidLead(request.resource.data);
-      allow update: if isAdmin() && isValidLead(request.resource.data);
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidLead(request.resource.data);
+      allow update: if isAuthenticated() && isValidLead(request.resource.data);
       allow delete: if isAdmin();
 
       // Messages subcollection
       match /messages/{messageId} {
-        allow read: if isAdmin();
-        allow create: if isAdmin() && isValidMessage(request.resource.data);
-        allow update: if false; // Messages are immutable
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+        allow update: if isAuthenticated() && isValidMessage(request.resource.data);
         allow delete: if isAdmin();
       }
+    }
+
+    // Settings collection
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidSettings(request.resource.data);
+      allow update: if isAdmin() && isValidSettings(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Users collection (for roles)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
     }
   }
 }
