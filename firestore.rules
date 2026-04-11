@@ -3,36 +3,6 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: leads
-    // Fields:
-    //   - name: string (required)
-    //   - phone: string (required)
-    //   - loanType: string (required)
-    //   - status: string (required, enum: ["new", "contacted", "converted", "lost"])
-    //   - lastMessage: string (optional)
-    //   - createdAt: string (optional, ISO 8601)
-    //
-    // Collection: leads/{leadId}/messages
-    // Fields:
-    //   - leadId: string (required)
-    //   - text: string (required)
-    //   - sender: string (required, enum: ["agent", "user"])
-    //   - timestamp: string (required, ISO 8601)
-    //
-    // Collection: settings
-    // Fields:
-    //   - name: string (required)
-    //   - tone: string (required)
-    //   - knowledgeBase: string (optional)
-    //   - logoUrl: string (optional)
-    //   - updatedAt: string (optional, ISO 8601)
-    //
-    // ===============================================================
-
-    // ===============================================================
     // Helper Functions
     // ===============================================================
 
@@ -50,24 +20,19 @@ service cloud.firestore {
       return request.resource.data.keys().hasAll(fields);
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
-    }
-
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
-    }
-
     // ===============================================================
     // Domain Validators
     // ===============================================================
 
+    function isValidCompany(data) {
+      return hasRequiredFields(['name', 'systemPrompt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.systemPrompt is string && data.systemPrompt.size() < 10000;
+    }
+
     function isValidLead(data) {
-      return hasRequiredFields(['name', 'phone', 'loanType', 'status']) &&
+      return hasRequiredFields(['companyId', 'name', 'phone', 'loanType', 'status']) &&
+             data.companyId is string && data.companyId.size() > 0 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.phone is string && data.phone.size() > 0 && data.phone.size() < 20 &&
              data.loanType is string &&
@@ -81,12 +46,6 @@ service cloud.firestore {
              data.timestamp is timestamp;
     }
 
-    function isValidSettings(data) {
-      return hasRequiredFields(['name', 'tone']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.tone is string && data.tone.size() > 0 && data.tone.size() < 100;
-    }
-
     // ===============================================================
     // Rules
     // ===============================================================
@@ -94,6 +53,14 @@ service cloud.firestore {
     // Default deny
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    // Companies collection
+    match /companies/{companyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCompany(request.resource.data);
+      allow update: if isAuthenticated() && isValidCompany(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     // Leads collection
@@ -110,14 +77,6 @@ service cloud.firestore {
         allow update: if isAuthenticated() && isValidMessage(request.resource.data);
         allow delete: if isAdmin();
       }
-    }
-
-    // Settings collection
-    match /settings/{settingId} {
-      allow read: if isAuthenticated();
-      allow create: if isAdmin() && isValidSettings(request.resource.data);
-      allow update: if isAdmin() && isValidSettings(request.resource.data);
-      allow delete: if isAdmin();
     }
 
     // Users collection (for roles)

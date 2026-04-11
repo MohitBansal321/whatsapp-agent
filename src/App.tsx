@@ -156,11 +156,64 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
     }
   };
 
-  // Fetch Leads
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+
+  // Fetch Companies
   useEffect(() => {
     if (!user) return;
     
-    const q = query(collection(db, 'leads'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const companiesData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      if (companiesData.length === 0) {
+        // Create default company if none exist
+        const defaultCompany = {
+          name: 'Bharat Loans',
+          systemPrompt: `You are a professional and friendly loan conversion agent. 
+Your goal is to help potential leads understand their loan options and convert them into applicants.
+Be polite, helpful, and persuasive. 
+CRITICAL: If the user asks a question not covered in the Knowledge Base, say "I don't have that information. Let me connect you to a human representative."
+CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the same language.`,
+          knowledgeBase: `Personal Loan: 10.5% - 18% APR
+Home Loan: 8.5% - 12% APR
+Business Loan: 12% - 22% APR
+Processing Fee: 1-2%
+Tenure: 12 to 60 months
+Eligibility: Min salary ₹25,000/month, Age 21-60`,
+          tone: 'friendly',
+          createdAt: serverTimestamp()
+        };
+        const docRef = await addDoc(collection(db, 'companies'), defaultCompany);
+        setCompanies([{ id: docRef.id, ...defaultCompany }]);
+        setSelectedCompanyId(docRef.id);
+        setConfig(defaultCompany as any);
+      } else {
+        setCompanies(companiesData);
+        if (!selectedCompanyId || !companiesData.find(c => c.id === selectedCompanyId)) {
+          setSelectedCompanyId(companiesData[0].id);
+          setConfig(companiesData[0] as any);
+        } else {
+          const current = companiesData.find(c => c.id === selectedCompanyId);
+          if (current) setConfig(current as any);
+        }
+      }
+    }, (error) => {
+      console.error("Firestore Error (Companies):", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Fetch Leads
+  useEffect(() => {
+    if (!user || !selectedCompanyId) return;
+    
+    const q = query(collection(db, 'leads'), where('companyId', '==', selectedCompanyId), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const leadsData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -184,18 +237,18 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, selectedCompanyId]);
 
   const seedDemoLeads = async () => {
-    if (!user || isSeeding) return;
+    if (!user || isSeeding || !selectedCompanyId) return;
     setIsSeeding(true);
     
     const initialLeads = [
-      { name: 'Rahul Sharma', phone: '+91 98765 43210', loanType: 'Personal Loan', status: 'converted', lastMessage: 'Yes, proceed with application', createdAt: serverTimestamp() },
-      { name: 'Priya Patel', phone: '+91 87654 32109', loanType: 'Home Loan', status: 'contacted', lastMessage: 'Interested in rates', createdAt: serverTimestamp() },
-      { name: 'Amit Singh', phone: '+91 76543 21098', loanType: 'Business Loan', status: 'new', createdAt: serverTimestamp() },
-      { name: 'Suresh Kumar', phone: '+91 99887 76655', loanType: 'Personal Loan', status: 'converted', lastMessage: 'Documents sent', createdAt: serverTimestamp() },
-      { name: 'Anjali Gupta', phone: '+91 88776 65544', loanType: 'Home Loan', status: 'contacted', lastMessage: 'Call me tomorrow', createdAt: serverTimestamp() },
+      { companyId: selectedCompanyId, name: 'Rahul Sharma', phone: '+91 98765 43210', loanType: 'Personal Loan', status: 'converted', lastMessage: 'Yes, proceed with application', createdAt: serverTimestamp() },
+      { companyId: selectedCompanyId, name: 'Priya Patel', phone: '+91 87654 32109', loanType: 'Home Loan', status: 'contacted', lastMessage: 'Interested in rates', createdAt: serverTimestamp() },
+      { companyId: selectedCompanyId, name: 'Amit Singh', phone: '+91 76543 21098', loanType: 'Business Loan', status: 'new', createdAt: serverTimestamp() },
+      { companyId: selectedCompanyId, name: 'Suresh Kumar', phone: '+91 99887 76655', loanType: 'Personal Loan', status: 'converted', lastMessage: 'Documents sent', createdAt: serverTimestamp() },
+      { companyId: selectedCompanyId, name: 'Anjali Gupta', phone: '+91 88776 65544', loanType: 'Home Loan', status: 'contacted', lastMessage: 'Call me tomorrow', createdAt: serverTimestamp() },
     ];
     
     try {
@@ -220,7 +273,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !user || !selectedCompanyId) return;
 
     setIsUploading(true);
     try {
@@ -242,6 +295,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
           if (cols.length < 2) continue;
 
           await addDoc(collection(db, 'leads'), {
+            companyId: selectedCompanyId,
             name: cols[nameIdx],
             phone: cols[phoneIdx],
             loanType: loanTypeIdx !== -1 ? cols[loanTypeIdx] : 'Personal Loan',
@@ -267,6 +321,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
           for (const l of data.leads) {
             await addDoc(collection(db, 'leads'), {
               ...l,
+              companyId: selectedCompanyId,
               status: 'new',
               createdAt: serverTimestamp()
             });
@@ -286,7 +341,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
   };
 
   const handleGoogleSheetsSync = async () => {
-    if (!sheetId || !user) return;
+    if (!sheetId || !user || !selectedCompanyId) return;
     setIsUploading(true);
     try {
       const response = await fetch('/api/sync-sheets', {
@@ -302,6 +357,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         for (const l of data.leads) {
           await addDoc(collection(db, 'leads'), {
             ...l,
+            companyId: selectedCompanyId,
             status: 'new',
             createdAt: serverTimestamp()
           });
@@ -620,8 +676,47 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
       
       {/* Sidebar Navigation */}
       <div className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-8 gap-8 shadow-sm z-10">
-        <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white shadow-lg mb-4">
+        <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white shadow-lg mb-4 cursor-pointer relative group">
           <MessageSquare size={28} />
+          
+          {/* Company Switcher Dropdown */}
+          <div className="absolute left-16 top-0 bg-white border border-gray-200 rounded-xl shadow-xl w-48 hidden group-hover:block z-50 overflow-hidden">
+            <div className="p-3 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Select Company
+            </div>
+            {companies.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setSelectedCompanyId(c.id)}
+                className={`w-full text-left px-4 py-3 text-sm hover:bg-green-50 transition-colors ${selectedCompanyId === c.id ? 'bg-green-50 text-green-700 font-bold' : 'text-gray-700'}`}
+              >
+                {c.name}
+              </button>
+            ))}
+            <button
+              onClick={async () => {
+                const name = prompt("Enter new company name:");
+                if (name) {
+                  const newCompany = {
+                    name,
+                    systemPrompt: `You are a professional and friendly loan conversion agent. 
+Your goal is to help potential leads understand their loan options and convert them into applicants.
+Be polite, helpful, and persuasive. 
+CRITICAL: If the user asks a question not covered in the Knowledge Base, say "I don't have that information. Let me connect you to a human representative."
+CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the same language.`,
+                    knowledgeBase: `Standard loan products and interest rates apply.`,
+                    tone: 'friendly',
+                    createdAt: serverTimestamp()
+                  };
+                  const docRef = await addDoc(collection(db, 'companies'), newCompany);
+                  setSelectedCompanyId(docRef.id);
+                }
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-blue-600 font-medium hover:bg-blue-50 transition-colors border-t border-gray-100 flex items-center gap-2"
+            >
+              <Plus size={16} /> Add Company
+            </button>
+          </div>
         </div>
         
         <nav className="flex flex-col gap-6">
@@ -993,7 +1088,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                       onClick={async () => {
                         if (window.confirm("Are you sure you want to clear all leads?")) {
                           try {
-                            const snapshot = await getDocs(collection(db, 'leads'));
+                            const snapshot = await getDocs(query(collection(db, 'leads'), where('companyId', '==', selectedCompanyId)));
                             for (const d of snapshot.docs) {
                               await updateDoc(doc(db, 'leads', d.id), { status: 'lost' });
                             }
@@ -1008,7 +1103,16 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
                       Reset Demo Data
                     </button>
                     <button 
-                      onClick={() => alert("Configuration saved successfully! All AI responses will now use your new company identity and tone.")}
+                      onClick={async () => {
+                        if (!selectedCompanyId) return;
+                        try {
+                          await updateDoc(doc(db, 'companies', selectedCompanyId), config as any);
+                          alert("Configuration saved successfully! All AI responses will now use your new company identity and tone.");
+                        } catch (error) {
+                          console.error("Error saving config:", error);
+                          alert("Failed to save configuration.");
+                        }
+                      }}
                       className="px-10 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all transform hover:scale-105"
                     >
                       Save Configuration

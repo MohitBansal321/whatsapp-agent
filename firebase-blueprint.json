@@ -1,10 +1,24 @@
 {
   "entities": {
+    "company": {
+      "title": "Company",
+      "description": "A tenant/company using the platform.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the company." },
+        "systemPrompt": { "type": "string", "description": "The core instructions for the AI." },
+        "knowledgeBase": { "type": "string", "description": "The product knowledge base text." },
+        "tone": { "type": "string", "description": "The AI's tone of voice." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the company was created." }
+      },
+      "required": ["name", "systemPrompt"]
+    },
     "lead": {
       "title": "Lead",
       "description": "A potential customer for a loan.",
       "type": "object",
       "properties": {
+        "companyId": { "type": "string", "description": "The ID of the company this lead belongs to." },
         "name": { "type": "string", "description": "The name of the lead." },
         "phone": { "type": "string", "description": "The phone number of the lead." },
         "loanType": { "type": "string", "description": "The type of loan they are interested in." },
@@ -12,35 +26,25 @@
         "lastMessage": { "type": "string", "description": "The last message received from the lead." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the lead was created." }
       },
-      "required": ["name", "phone", "loanType", "status"]
+      "required": ["companyId", "name", "phone", "loanType", "status"]
     },
     "message": {
       "title": "Message",
       "description": "A chat message in a conversation with a lead.",
       "type": "object",
       "properties": {
-        "leadId": { "type": "string", "description": "The ID of the lead this message belongs to." },
         "text": { "type": "string", "description": "The content of the message." },
         "sender": { "type": "string", "enum": ["agent", "user"], "description": "Who sent the message." },
         "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent." }
       },
-      "required": ["leadId", "text", "sender", "timestamp"]
-    },
-    "organization": {
-      "title": "Organization",
-      "description": "Settings for a specific company using the platform.",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string", "description": "The name of the company." },
-        "tone": { "type": "string", "description": "The AI's tone of voice." },
-        "knowledgeBase": { "type": "string", "description": "The product knowledge base text." },
-        "logoUrl": { "type": "string", "description": "The URL of the company logo." },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "When the settings were last updated." }
-      },
-      "required": ["name", "tone"]
+      "required": ["text", "sender", "timestamp"]
     }
   },
   "firestore": {
+    "/companies": {
+      "schema": { "$ref": "company" },
+      "description": "Collection of companies/tenants."
+    },
     "/leads": {
       "schema": { "$ref": "lead" },
       "description": "Collection of loan leads."
@@ -48,10 +52,6 @@
     "/leads/{leadId}/messages": {
       "schema": { "$ref": "message" },
       "description": "Subcollection of messages for a specific lead."
-    },
-    "/settings": {
-      "schema": { "$ref": "organization" },
-      "description": "Global settings for the platform (multi-tenant ready)."
     }
   }
 }
