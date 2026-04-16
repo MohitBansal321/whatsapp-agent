@@ -22,7 +22,6 @@ import {
   Smile,
   Mic,
   Search,
-  ArrowLeft,
   LogOut,
   BarChart3,
   TrendingUp,
@@ -48,7 +47,8 @@ import {
   doc,
   getDocs,
   where,
-  Timestamp
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -322,14 +322,17 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         
         const data = await response.json();
         if (data.leads && Array.isArray(data.leads)) {
+          const batch = writeBatch(db);
           for (const l of data.leads) {
-            await addDoc(collection(db, 'leads'), {
+            const newLeadRef = doc(collection(db, 'leads'));
+            batch.set(newLeadRef, {
               ...l,
               companyId: selectedCompanyId,
               status: 'new',
               createdAt: serverTimestamp()
             });
           }
+          await batch.commit();
           alert(`Imported ${data.leads.length} leads from PDF!`);
         }
       } else {
@@ -1105,9 +1108,17 @@ CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the 
                         if (window.confirm("Are you sure you want to clear all leads?")) {
                           try {
                             const snapshot = await getDocs(query(collection(db, 'leads'), where('companyId', '==', selectedCompanyId)));
-                            for (const d of snapshot.docs) {
-                              await updateDoc(doc(db, 'leads', d.id), { status: 'lost' });
+
+                            const chunkSize = 500;
+                            for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+                              const batch = writeBatch(db);
+                              const chunk = snapshot.docs.slice(i, i + chunkSize);
+                              for (const d of chunk) {
+                                batch.update(doc(db, 'leads', d.id), { status: 'lost' });
+                              }
+                              await batch.commit();
                             }
+
                             alert("Leads marked as lost.");
                           } catch (e) {
                             console.error(e);
