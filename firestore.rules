@@ -25,9 +25,11 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidCompany(data) {
-      return hasRequiredFields(['name', 'systemPrompt']) &&
+      return hasRequiredFields(['name', 'systemPrompt', 'ownerId']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.systemPrompt is string && data.systemPrompt.size() < 10000;
+             data.systemPrompt is string && data.systemPrompt.size() < 10000 &&
+             data.ownerId is string && data.ownerId == request.auth.uid &&
+             (!data.keys().hasAny(['whatsappNumber']) || (data.whatsappNumber is string && data.whatsappNumber.size() < 20));
     }
 
     function isValidLead(data) {
@@ -55,27 +57,34 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    function userOwnsCompany(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)).data.ownerId == request.auth.uid;
+    }
+
     // Companies collection
     match /companies/{companyId} {
-      allow read: if isAuthenticated();
+      // Security Fix: Prevent Cross-Tenant Data Exposure
+      // Previously, any authenticated user could read all companies data (including systemPrompt/knowledgeBase).
+      // Added tenant isolation check (resource.data.ownerId == request.auth.uid) to restrict access.
+      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && isValidCompany(request.resource.data);
-      allow update: if isAuthenticated() && isValidCompany(request.resource.data);
-      allow delete: if isAdmin();
+      allow update: if isAuthenticated() && isValidCompany(request.resource.data) && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
     }
 
     // Leads collection
     match /leads/{leadId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidLead(request.resource.data);
-      allow update: if isAuthenticated() && isValidLead(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if isAuthenticated() && (userOwnsCompany(resource.data.companyId) || isAdmin());
+      allow create: if isAuthenticated() && isValidLead(request.resource.data) && userOwnsCompany(request.resource.data.companyId);
+      allow update: if isAuthenticated() && isValidLead(request.resource.data) && userOwnsCompany(resource.data.companyId) && userOwnsCompany(request.resource.data.companyId);
+      allow delete: if isAdmin() || (isAuthenticated() && userOwnsCompany(resource.data.companyId));
 
       // Messages subcollection
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && isValidMessage(request.resource.data);
-        allow update: if isAuthenticated() && isValidMessage(request.resource.data);
-        allow delete: if isAdmin();
+        allow read: if isAuthenticated() && (userOwnsCompany(get(/databases/$(database)/documents/leads/$(leadId)).data.companyId) || isAdmin());
+        allow create: if isAuthenticated() && isValidMessage(request.resource.data) && userOwnsCompany(get(/databases/$(database)/documents/leads/$(leadId)).data.companyId);
+        allow update: if isAuthenticated() && isValidMessage(request.resource.data) && userOwnsCompany(get(/databases/$(database)/documents/leads/$(leadId)).data.companyId);
+        allow delete: if isAdmin() || (isAuthenticated() && userOwnsCompany(get(/databases/$(database)/documents/leads/$(leadId)).data.companyId));
       }
     }
 

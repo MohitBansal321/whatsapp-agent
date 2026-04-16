@@ -22,7 +22,6 @@ import {
   Smile,
   Mic,
   Search,
-  ArrowLeft,
   LogOut,
   BarChart3,
   TrendingUp,
@@ -48,8 +47,8 @@ import {
   doc,
   getDocs,
   where,
-  writeBatch,
-  Timestamp
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -85,6 +84,7 @@ interface AgentConfig {
   primaryLanguage: string;
   tone: 'professional' | 'friendly' | 'urgent' | 'empathetic';
   logoUrl?: string;
+  whatsappNumber?: string;
 }
 
 interface AnalyticsData {
@@ -123,7 +123,8 @@ Processing Fee: 1-2%
 Tenure: 12 to 60 months
 Eligibility: Min salary ₹25,000/month, Age 21-60`,
     primaryLanguage: 'English',
-    tone: 'friendly'
+    tone: 'friendly',
+    whatsappNumber: ''
   });
 
   const [analytics, setAnalytics] = useState<AnalyticsData>({
@@ -164,7 +165,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
   useEffect(() => {
     if (!user) return;
     
-    const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'companies'), where('ownerId', '==', user.uid));
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const companiesData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -175,6 +176,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         // Create default company if none exist
         const defaultCompany = {
           name: 'Bharat Loans',
+          ownerId: user.uid,
           systemPrompt: `You are a professional and friendly loan conversion agent. 
 Your goal is to help potential leads understand their loan options and convert them into applicants.
 Be polite, helpful, and persuasive. 
@@ -187,6 +189,7 @@ Processing Fee: 1-2%
 Tenure: 12 to 60 months
 Eligibility: Min salary ₹25,000/month, Age 21-60`,
           tone: 'friendly',
+          whatsappNumber: '',
           createdAt: serverTimestamp()
         };
         const docRef = await addDoc(collection(db, 'companies'), defaultCompany);
@@ -332,10 +335,10 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         
         const data = await response.json();
         if (data.leads && Array.isArray(data.leads)) {
-          let batch = writeBatch(db);
-          let count = 0;
+          const batch = writeBatch(db);
           for (const l of data.leads) {
-            batch.set(doc(collection(db, 'leads')), {
+            const newLeadRef = doc(collection(db, 'leads'));
+            batch.set(newLeadRef, {
               ...l,
               companyId: selectedCompanyId,
               status: 'new',
@@ -347,7 +350,7 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
               count = 0;
             }
           }
-          if (count > 0) await batch.commit();
+          await batch.commit();
           alert(`Imported ${data.leads.length} leads from PDF!`);
         }
       } else {
@@ -726,9 +729,10 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
             <button
               onClick={async () => {
                 const name = prompt("Enter new company name:");
-                if (name) {
+                if (name && user) {
                   const newCompany = {
                     name,
+                    ownerId: user.uid,
                     systemPrompt: `You are a professional and friendly loan conversion agent. 
 Your goal is to help potential leads understand their loan options and convert them into applicants.
 Be polite, helpful, and persuasive. 
@@ -736,6 +740,7 @@ CRITICAL: If the user asks a question not covered in the Knowledge Base, say "I 
 CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the same language.`,
                     knowledgeBase: `Standard loan products and interest rates apply.`,
                     tone: 'friendly',
+                    whatsappNumber: '',
                     createdAt: serverTimestamp()
                   };
                   const docRef = await addDoc(collection(db, 'companies'), newCompany);
@@ -1038,6 +1043,16 @@ CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the 
                         />
                       </div>
                       <div className="space-y-2">
+                        <label className="text-sm font-semibold text-gray-700">WhatsApp Number</label>
+                        <input
+                          type="text"
+                          value={config.whatsappNumber || ''}
+                          onChange={(e) => setConfig({...config, whatsappNumber: e.target.value})}
+                          placeholder="+1234567890"
+                          className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
                         <label className="text-sm font-semibold text-gray-700">AI Tone of Voice</label>
                         <select 
                           value={config.tone}
@@ -1119,17 +1134,17 @@ CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the 
                         if (window.confirm("Are you sure you want to clear all leads?")) {
                           try {
                             const snapshot = await getDocs(query(collection(db, 'leads'), where('companyId', '==', selectedCompanyId)));
-                            let batch = writeBatch(db);
-                            let count = 0;
-                            for (const d of snapshot.docs) {
-                              batch.update(doc(db, 'leads', d.id), { status: 'lost' });
-                              if (++count === 500) {
-                                await batch.commit();
-                                batch = writeBatch(db);
-                                count = 0;
+
+                            const chunkSize = 500;
+                            for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+                              const batch = writeBatch(db);
+                              const chunk = snapshot.docs.slice(i, i + chunkSize);
+                              for (const d of chunk) {
+                                batch.update(doc(db, 'leads', d.id), { status: 'lost' });
                               }
+                              await batch.commit();
                             }
-                            if (count > 0) await batch.commit();
+
                             alert("Leads marked as lost.");
                           } catch (e) {
                             console.error(e);
