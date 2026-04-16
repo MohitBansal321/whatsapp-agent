@@ -322,14 +322,17 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         
         const data = await response.json();
         if (data.leads && Array.isArray(data.leads)) {
+          const batch = writeBatch(db);
           for (const l of data.leads) {
-            await addDoc(collection(db, 'leads'), {
+            const newLeadRef = doc(collection(db, 'leads'));
+            batch.set(newLeadRef, {
               ...l,
               companyId: selectedCompanyId,
               status: 'new',
               createdAt: serverTimestamp()
             });
           }
+          await batch.commit();
           alert(`Imported ${data.leads.length} leads from PDF!`);
         }
       } else {
