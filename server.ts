@@ -335,6 +335,10 @@ app.post("/api/sync-sheets", async (req, res) => {
 
 // Vite Integration
 async function startServer() {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -355,3 +359,5 @@ async function startServer() {
 }
 
 startServer();
+
+export { app };
