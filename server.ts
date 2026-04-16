@@ -12,7 +12,7 @@ const pdf = require("pdf-parse");
 
 dotenv.config();
 
-const app = express();
+export const app = express();
 const PORT = 3000;
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -335,13 +335,13 @@ app.post("/api/sync-sheets", async (req, res) => {
 
 // Vite Integration
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
@@ -349,9 +349,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`>>> Bharat Loans Backend running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== "test") {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`>>> Bharat Loans Backend running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 if (process.env.NODE_ENV !== 'test') {
