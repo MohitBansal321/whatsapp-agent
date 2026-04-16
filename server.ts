@@ -12,7 +12,7 @@ const pdf = require("pdf-parse");
 
 dotenv.config();
 
-export const app = express();
+const app = express();
 const PORT = 3000;
 const upload = multer({ storage: multer.memoryStorage() });
 
