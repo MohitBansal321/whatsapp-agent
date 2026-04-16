@@ -349,9 +349,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`>>> Bharat Loans Backend running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`>>> Bharat Loans Backend running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer();
+
+export { app };
