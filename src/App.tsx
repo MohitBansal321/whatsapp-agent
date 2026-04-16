@@ -22,7 +22,6 @@ import {
   Smile,
   Mic,
   Search,
-  ArrowLeft,
   LogOut,
   BarChart3,
   TrendingUp,
@@ -48,7 +47,8 @@ import {
   doc,
   getDocs,
   where,
-  Timestamp
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -257,16 +257,20 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
     
     try {
       console.log("Seeding leads...");
+      const batch = writeBatch(db);
       for (const l of initialLeads) {
-        const docRef = await addDoc(collection(db, 'leads'), l);
+        const leadRef = doc(collection(db, 'leads'));
+        batch.set(leadRef, l);
         if (l.status !== 'new') {
-          await addDoc(collection(db, `leads/${docRef.id}/messages`), {
+          const msgRef = doc(collection(db, `leads/${leadRef.id}/messages`));
+          batch.set(msgRef, {
             text: `Namaste ${l.name}! I am your assistant from ${config.companyName}. I see you are interested in a ${l.loanType}. How can I help you today?`,
             sender: 'agent',
             timestamp: serverTimestamp()
           });
         }
       }
+      await batch.commit();
       alert('Demo leads seeded successfully with diverse statuses!');
     } catch (error) {
       console.error("Error seeding leads:", error);
@@ -294,11 +298,13 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
           throw new Error('CSV must have at least "name" and "phone" columns.');
         }
 
+        let batch = writeBatch(db);
+        let count = 0;
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(',').map(c => c.trim());
           if (cols.length < 2) continue;
 
-          await addDoc(collection(db, 'leads'), {
+          batch.set(doc(collection(db, 'leads')), {
             companyId: selectedCompanyId,
             name: cols[nameIdx],
             phone: cols[phoneIdx],
@@ -306,7 +312,14 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
             status: 'new',
             createdAt: serverTimestamp()
           });
+
+          if (++count === 500) {
+            await batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
         }
+        if (count > 0) await batch.commit();
         alert('CSV leads imported successfully!');
       } else if (file.name.endsWith('.pdf')) {
         // Send to backend for PDF parsing
@@ -322,14 +335,22 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         
         const data = await response.json();
         if (data.leads && Array.isArray(data.leads)) {
+          const batch = writeBatch(db);
           for (const l of data.leads) {
-            await addDoc(collection(db, 'leads'), {
+            const newLeadRef = doc(collection(db, 'leads'));
+            batch.set(newLeadRef, {
               ...l,
               companyId: selectedCompanyId,
               status: 'new',
               createdAt: serverTimestamp()
             });
+            if (++count === 500) {
+              await batch.commit();
+              batch = writeBatch(db);
+              count = 0;
+            }
           }
+          await batch.commit();
           alert(`Imported ${data.leads.length} leads from PDF!`);
         }
       } else {
@@ -358,14 +379,22 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
       
       const data = await response.json();
       if (data.leads && Array.isArray(data.leads)) {
+        let batch = writeBatch(db);
+        let count = 0;
         for (const l of data.leads) {
-          await addDoc(collection(db, 'leads'), {
+          batch.set(doc(collection(db, 'leads')), {
             ...l,
             companyId: selectedCompanyId,
             status: 'new',
             createdAt: serverTimestamp()
           });
+          if (++count === 500) {
+            await batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
         }
+        if (count > 0) await batch.commit();
         alert(`Synced ${data.leads.length} leads from Google Sheets!`);
       }
       setIsAddLeadModalOpen(false);
@@ -1105,9 +1134,17 @@ CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the 
                         if (window.confirm("Are you sure you want to clear all leads?")) {
                           try {
                             const snapshot = await getDocs(query(collection(db, 'leads'), where('companyId', '==', selectedCompanyId)));
-                            for (const d of snapshot.docs) {
-                              await updateDoc(doc(db, 'leads', d.id), { status: 'lost' });
+
+                            const chunkSize = 500;
+                            for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+                              const batch = writeBatch(db);
+                              const chunk = snapshot.docs.slice(i, i + chunkSize);
+                              for (const d of chunk) {
+                                batch.update(doc(db, 'leads', d.id), { status: 'lost' });
+                              }
+                              await batch.commit();
                             }
+
                             alert("Leads marked as lost.");
                           } catch (e) {
                             console.error(e);

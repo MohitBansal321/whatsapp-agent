@@ -63,6 +63,9 @@ service cloud.firestore {
 
     // Companies collection
     match /companies/{companyId} {
+      // Security Fix: Prevent Cross-Tenant Data Exposure
+      // Previously, any authenticated user could read all companies data (including systemPrompt/knowledgeBase).
+      // Added tenant isolation check (resource.data.ownerId == request.auth.uid) to restrict access.
       allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && isValidCompany(request.resource.data);
       allow update: if isAuthenticated() && isValidCompany(request.resource.data) && resource.data.ownerId == request.auth.uid;
