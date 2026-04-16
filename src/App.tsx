@@ -47,8 +47,7 @@ import {
   updateDoc, 
   doc,
   getDocs,
-  where,
-  Timestamp
+  where
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
