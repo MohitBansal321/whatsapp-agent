@@ -298,13 +298,13 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
           throw new Error('CSV must have at least "name" and "phone" columns.');
         }
 
-        let batch = writeBatch(db);
-        let count = 0;
+        let csvBatch = writeBatch(db);
+        let csvCount = 0;
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(',').map(c => c.trim());
           if (cols.length < 2) continue;
 
-          batch.set(doc(collection(db, 'leads')), {
+          csvBatch.set(doc(collection(db, 'leads')), {
             companyId: selectedCompanyId,
             name: cols[nameIdx],
             phone: cols[phoneIdx],
@@ -313,13 +313,13 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
             createdAt: serverTimestamp()
           });
 
-          if (++count === 500) {
-            await batch.commit();
-            batch = writeBatch(db);
-            count = 0;
+          if (++csvCount === 500) {
+            await csvBatch.commit();
+            csvBatch = writeBatch(db);
+            csvCount = 0;
           }
         }
-        if (count > 0) await batch.commit();
+        if (csvCount > 0) await csvBatch.commit();
         alert('CSV leads imported successfully!');
       } else if (file.name.endsWith('.pdf')) {
         // Send to backend for PDF parsing
@@ -335,22 +335,23 @@ Eligibility: Min salary ₹25,000/month, Age 21-60`,
         
         const data = await response.json();
         if (data.leads && Array.isArray(data.leads)) {
-          const batch = writeBatch(db);
+          let pdfBatch = writeBatch(db);
+          let pdfCount = 0;
           for (const l of data.leads) {
             const newLeadRef = doc(collection(db, 'leads'));
-            batch.set(newLeadRef, {
+            pdfBatch.set(newLeadRef, {
               ...l,
               companyId: selectedCompanyId,
               status: 'new',
               createdAt: serverTimestamp()
             });
-            if (++count === 500) {
-              await batch.commit();
-              batch = writeBatch(db);
-              count = 0;
+            if (++pdfCount === 500) {
+              await pdfBatch.commit();
+              pdfBatch = writeBatch(db);
+              pdfCount = 0;
             }
           }
-          await batch.commit();
+          if (pdfCount > 0) await pdfBatch.commit();
           alert(`Imported ${data.leads.length} leads from PDF!`);
         }
       } else {
