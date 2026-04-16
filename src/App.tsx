@@ -22,7 +22,6 @@ import {
   Smile,
   Mic,
   Search,
-  ArrowLeft,
   LogOut,
   BarChart3,
   TrendingUp,
