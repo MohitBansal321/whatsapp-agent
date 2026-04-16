@@ -46,7 +46,9 @@ import {
   updateDoc, 
   doc,
   getDocs,
-  where
+  where,
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -1103,9 +1105,17 @@ CRITICAL: Auto-detect the user's language (including Hinglish) and reply in the 
                         if (window.confirm("Are you sure you want to clear all leads?")) {
                           try {
                             const snapshot = await getDocs(query(collection(db, 'leads'), where('companyId', '==', selectedCompanyId)));
-                            for (const d of snapshot.docs) {
-                              await updateDoc(doc(db, 'leads', d.id), { status: 'lost' });
+
+                            const chunkSize = 500;
+                            for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+                              const batch = writeBatch(db);
+                              const chunk = snapshot.docs.slice(i, i + chunkSize);
+                              for (const d of chunk) {
+                                batch.update(doc(db, 'leads', d.id), { status: 'lost' });
+                              }
+                              await batch.commit();
                             }
+
                             alert("Leads marked as lost.");
                           } catch (e) {
                             console.error(e);
