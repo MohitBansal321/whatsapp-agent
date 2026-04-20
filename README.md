@@ -1,50 +1,82 @@
-# Bharat Loans AI Agent (Multi-Tenant SaaS)
+# 🤖 Bharat Loans AI Agent — Multi-Tenant SaaS Platform
 
-A multi-tenant AI loan agent platform built with React, Vite, Express, and Firebase. It features a conversational AI powered by Google's Gemini API, capable of handling loan inquiries, converting leads, and performing Retrieval-Augmented Generation (RAG) based on company-specific knowledge bases.
+> An intelligent, multi-tenant AI loan agent that handles real customer conversations, converts leads, and adapts to each company's brand and knowledge base — powered by Google Gemini.
 
-## Features
-- **Multi-Tenancy:** Support for multiple companies, each with their own isolated leads, configuration, and AI personality.
-- **AI Chat Agent:** Conversational AI using Gemini, capable of text and audio interactions.
-- **RAG (Retrieval-Augmented Generation):** AI answers are grounded in company-specific knowledge bases (PDF uploads).
-- **Voice Capabilities:** Users can record and send voice notes, which are transcribed and processed by the AI.
-- **Multi-lingual Support:** Auto-detects and responds in the user's language (including Hinglish).
-- **Analytics Dashboard:** Tracks conversion rates, cost per lead, and time saved.
-- **Lead Management:** Import leads via CSV, PDF, or Google Sheets.
+![TypeScript](https://img.shields.io/badge/TypeScript-99.7%25-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-v18%2B-6DA55F?style=flat-square&logo=node.js&logoColor=white)
+![React](https://img.shields.io/badge/React-Vite-61DAFB?style=flat-square&logo=react&logoColor=black)
+![Firebase](https://img.shields.io/badge/Firebase-Firestore-FFCA28?style=flat-square&logo=firebase&logoColor=black)
+![Gemini](https://img.shields.io/badge/Google-Gemini%20AI-4285F4?style=flat-square&logo=google&logoColor=white)
 
-## Prerequisites
+---
 
-Before you begin, ensure you have the following installed:
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- npm (comes with Node.js)
+## 🚀 What This Does
 
-You will also need:
-- A [Firebase](https://firebase.google.com/) project with Firestore and Authentication (Google Sign-in) enabled.
-- A [Google AI Studio](https://aistudio.google.com/) API key for Gemini.
+Businesses in the lending space deal with hundreds of customer queries every day. This platform deploys a **conversational AI agent per company** that:
 
-## Local Development Setup
+- Answers loan-related questions in real time (text + voice)
+- Speaks the customer's language — including **Hinglish** auto-detection
+- Grounds its answers in company-specific PDFs using **RAG (Retrieval-Augmented Generation)**
+- Tracks leads, conversion rates, and cost-per-lead in an analytics dashboard
+- Keeps each company's data completely isolated via **multi-tenancy**
 
-Follow these steps to run the frontend and backend code locally on your machine.
+---
 
-### 1. Clone or Extract the Project
-If you exported this project as a ZIP or to GitHub, extract it or clone it to your local machine:
+## ✨ Key Features
+
+| Feature | Description |
+|---|---|
+| 🏢 **Multi-Tenancy** | Each company gets isolated leads, config, and AI personality |
+| 🧠 **RAG Engine** | AI answers grounded in uploaded PDF knowledge bases |
+| 🎙️ **Voice Support** | Users send voice notes → transcribed → AI responds |
+| 🌐 **Multi-lingual** | Auto-detects language, responds in Hindi, English, or Hinglish |
+| 📊 **Analytics** | Conversion rates, cost per lead, time saved |
+| 📥 **Lead Import** | Import leads via CSV, PDF, or Google Sheets |
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React 18, Vite, TypeScript
+- **Backend**: Express.js, TypeScript
+- **Database**: Firebase Firestore
+- **Auth**: Firebase Authentication (Google Sign-in)
+- **AI**: Google Gemini API (text + audio)
+- **Storage**: Firebase Storage (PDFs, audio)
+- **Testing**: Vitest
+
+---
+
+## ⚡ Quick Start
+
+### Prerequisites
+
+- Node.js v18+
+- A [Firebase](https://firebase.google.com/) project (Firestore + Google Auth enabled)
+- A [Google AI Studio](https://aistudio.google.com/) API key
+
+### 1. Clone & Install
+
 ```bash
-git clone <your-repo-url>
-cd <your-repo-directory>
-```
-
-### 2. Install Dependencies
-Install all required npm packages. This project uses a unified package.json for both frontend and backend dependencies:
-```bash
+git clone https://github.com/MohitBansal321/whatsapp-agent.git
+cd whatsapp-agent
 npm install
 ```
 
-### 3. Set up Environment Variables
-Create a `.env` file in the root directory of the project and add your Gemini API key:
-```env
-GEMINI_API_KEY=your_google_ai_studio_api_key_here
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
 ```
 
-Ensure your `firebase-applet-config.json` is present in the root directory with your Firebase project credentials. If it's missing, create it with your Firebase config:
+Add your Gemini API key to `.env`:
+
+```
+GEMINI_API_KEY=your_google_ai_studio_api_key
+```
+
+Create `firebase-applet-config.json` in the root:
+
 ```json
 {
   "apiKey": "your-api-key",
@@ -52,24 +84,48 @@ Ensure your `firebase-applet-config.json` is present in the root directory with 
   "projectId": "your-project-id",
   "storageBucket": "your-storage-bucket",
   "messagingSenderId": "your-messaging-sender-id",
-  "appId": "your-app-id",
-  "firestoreDatabaseId": "(default)"
+  "appId": "your-app-id"
 }
 ```
 
-### 4. Run the Application
-This project uses a unified full-stack setup. The Express backend (`server.ts`) serves the API routes (like `/api/chat` and `/api/chat-audio`) and uses Vite as middleware to serve the React frontend simultaneously.
+### 3. Run
 
-To start the development server, run:
 ```bash
 npm run dev
 ```
 
-The server will start, and you can access the application in your browser at:
-**http://localhost:3000**
+Open **http://localhost:3000** — the Express backend and React frontend run together via Vite middleware.
 
-## Project Structure
-- `/src`: Contains the React frontend code (`App.tsx`, Firebase initialization, etc.).
-- `server.ts`: The Express backend server that handles API requests (Gemini integration, PDF parsing, audio processing) and serves the Vite frontend.
-- `firebase-blueprint.json`: Defines the Firestore database schema and multi-tenancy structure.
-- `firestore.rules`: Security rules for Firestore to ensure data isolation between tenants.
+---
+
+## 🏗️ Project Structure
+
+```
+whatsapp-agent/
+├── src/                    # React frontend (App.tsx, Firebase init)
+├── tests/                  # Test suites
+├── server.ts               # Express backend (Gemini API, audio, PDF parsing)
+├── firebase-blueprint.json # Firestore schema & multi-tenancy design
+├── firestore.rules         # Security rules (data isolation per tenant)
+├── .env.example            # Environment variable template
+└── vitest.config.ts        # Test configuration
+```
+
+---
+
+## 🧩 Architecture Highlights
+
+- **Full-stack monorepo**: Single `npm run dev` starts both Express API and React app
+- **RAG pipeline**: PDFs uploaded → chunked → stored in Firestore → retrieved on query → injected into Gemini prompt
+- **Audio flow**: Voice note recorded → sent as binary → transcribed server-side → response generated → returned as text
+- **Tenant isolation**: Firestore rules enforce that Company A cannot access Company B's data
+
+---
+
+## 📄 License
+
+MIT — feel free to use, fork, and build on this.
+
+---
+
+> Built by [Mohit Bansal](https://github.com/MohitBansal321) · [LinkedIn](https://linkedin.com/in/mohitbansalhmh) · [askaide.in](https://askaide.in)
